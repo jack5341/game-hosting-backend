@@ -52,9 +52,35 @@ func createServer(c *gin.Context) {
 		return
 	}
 
-	tmp, err := template.New("./templates/pz.yaml").Parse(string(""))
+	tmp, err := template.New("pz.yaml").Parse(`
+apiVersion: v1
+kind: Pod
+metadata:
+  name: project-zomboid-{{.ID}}
+  labels:
+    game: project-zomboid
+    size: {{ .Size }}
+    id: {{ .ID }}
+spec:
+  containers:
+    - name: game-container
+      image: pepecitron/projectzomboid-server
+      volumeMounts:
+        - name: server-file-storage
+          mountPath: /data/server-file
+        - name: config-storage
+          mountPath: /data/config
+  volumes:
+    - name: server-file-storage
+      hostPath:
+        path: /root/zomboid/server-file
+    - name: config-storage
+      hostPath:
+        path: /root/zomboid/config
+`)
+
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Missed attribute %s", err.Error())})
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Template creation failed: %s", err.Error())})
 		return
 	}
 
@@ -64,11 +90,11 @@ func createServer(c *gin.Context) {
 		return
 	}
 
-	manifestName := fmt.Sprintf("%s-%s", PROJECT_ZOMBOID, id.String())
-	dir := fmt.Sprintf("./manifests/%s.yaml", manifestName)
+	manifestName := fmt.Sprintf("project-zomboid-%s.yaml", id.String())
+	dir := fmt.Sprintf("./manifests/%s", manifestName)
 	outputFile, err := os.Create(dir)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Missed attribute %s", err.Error())})
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("File creation failed: %s", err.Error())})
 		return
 	}
 
@@ -77,21 +103,21 @@ func createServer(c *gin.Context) {
 
 	err = tmp.Execute(outputFile, map[string]string{
 		"ID":   id.String(),
-		"Size": string(PZ_MD),
+		"Size": string(attributes.ServerType),
 	})
 
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Template could not be created %s", err.Error())})
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Template execution failed: %s", err.Error())})
 		return
 	}
 
-	cmd := exec.Command("kubectl", "-f", dir)
+	cmd := exec.Command("kubectl", "apply", "-f", dir)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	err = cmd.Run()
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Something went wrong %s", err.Error())})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Kubectl apply failed: %s", err.Error())})
 		return
 	}
 
