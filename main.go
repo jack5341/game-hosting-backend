@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -36,7 +37,7 @@ const (
 type GAMES string
 
 const (
-	PROJECT_ZOMBOID GAMES = "PROJECT_ZOMBOID"
+	PZ GAMES = "PZ"
 )
 
 type CreateServerAttributes struct {
@@ -59,7 +60,7 @@ func createServer(c *gin.Context) {
 	}
 
 	id := uuid.New()
-	templatePath := filepath.Join(templatesDir, fmt.Sprintf("%s.yml", attributes.ServerType))
+	templatePath := filepath.Join(templatesDir, fmt.Sprintf("%s.yml", strings.ToLower(string(attributes.Game))))
 	templateContent, err := ioutil.ReadFile(templatePath)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to read template file: %s", err.Error())})
