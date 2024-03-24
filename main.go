@@ -2,20 +2,44 @@ package main
 
 import (
 	"bytes"
+	"context"
+	"flag"
 	"fmt"
 	"html/template"
 	"io/ioutil"
 	"net/http"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/tools/clientcmd"
+	"k8s.io/client-go/util/homedir"
 )
 
+var clientSet *kubernetes.Clientset
+
 func main() {
+	var kubeconfig *string
+	if home := homedir.HomeDir(); home != "" {
+		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
+	} else {
+		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
+	}
+	flag.Parse()
+
+	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
+	if err != nil {
+		panic(err.Error())
+	}
+
+	clientSet, err = kubernetes.NewForConfig(config)
+	if err != nil {
+		panic(err.Error())
+	}
+
 	r := gin.Default()
 	r.GET("/ping", func(c *gin.Context) {
 		c.JSON(200, gin.H{
@@ -88,10 +112,17 @@ func createServer(c *gin.Context) {
 		return
 	}
 
-	cmd := exec.Command("kubectl", "apply", "-f", outputFilePath)
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	if err := cmd.Run(); err != nil {
+	manifestBytes, err := ioutil.ReadFile(outputFilePath)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to read manifest file: %s", err.Error())})
+		return
+	}
+
+	_, err = clientSet.CoreV1().RESTClient().Patch(types.ApplyPatchType).
+		SetHeader("Content-Type", "application/apply-patch+yaml").
+		Body(manifestBytes).
+		DoRaw(context.TODO())
+	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to apply manifest: %s", err.Error())})
 		return
 	}

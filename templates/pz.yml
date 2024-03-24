@@ -4,8 +4,8 @@ metadata:
   name: project-zomboid-{{.ID}}
   labels:
     game: project-zomboid
-    size: { { .Size } }
-    id: { { .ID } }
+    size: "{{.Size}}"
+    id: "{{.ID}}"
 spec:
   containers:
     - name: game-container

@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: project-zomboid-8a9c5f63-6cd3-42eb-951b-8c0dcdbf3298
+  labels:
+    game: project-zomboid
+    size: "PZ_MD"
+    id: "8a9c5f63-6cd3-42eb-951b-8c0dcdbf3298"
+spec:
+  containers:
+    - name: game-container
+      image: pepecitron/projectzomboid-server
+      volumeMounts:
+        - name: server-file-storage
+          mountPath: /data/server-file
+        - name: config-storage
+          mountPath: /data/config
+  volumes:
+    - name: server-file-storage
+      hostPath:
+        path: /root/project-zomboid-8a9c5f63-6cd3-42eb-951b-8c0dcdbf3298/server-file
+    - name: config-storage
+      hostPath:
+        path: /root/project-zomboid-8a9c5f63-6cd3-42eb-951b-8c0dcdbf3298/config
