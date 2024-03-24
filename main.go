@@ -1,11 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"html/template"
+	"io/ioutil"
 	"net/http"
 	"os"
 	"os/exec"
-	"text/template"
+	"path/filepath"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -39,85 +42,56 @@ const (
 type CreateServerAttributes struct {
 	Name        string       `form:"name" binding:"required"`
 	ServerType  SERVER_TYPES `form:"serverTypes" binding:"required"`
-	Game        SERVER_TYPES `form:"serverTypes" binding:"required"`
+	Game        GAMES        `form:"game" binding:"required"`
 	Description string       `form:"description"`
 }
 
+const (
+	templatesDir = "./templates"
+	manifestsDir = "./manifests"
+)
+
 func createServer(c *gin.Context) {
 	var attributes CreateServerAttributes
-	err := c.Bind(&attributes)
-
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Missed attribute %s", err.Error())})
+	if err := c.Bind(&attributes); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Failed to bind attributes: %s", err.Error())})
 		return
 	}
 
-	tmp, err := template.New("pz.yaml").Parse(`
-apiVersion: v1
-kind: Pod
-metadata:
-  name: project-zomboid-{{.ID}}
-  labels:
-    game: project-zomboid
-    size: {{ .Size }}
-    id: {{ .ID }}
-spec:
-  containers:
-    - name: game-container
-      image: pepecitron/projectzomboid-server
-      volumeMounts:
-        - name: server-file-storage
-          mountPath: /data/server-file
-        - name: config-storage
-          mountPath: /data/config
-  volumes:
-    - name: server-file-storage
-      hostPath:
-        path: /root/zomboid/server-file
-    - name: config-storage
-      hostPath:
-        path: /root/zomboid/config
-`)
-
+	id := uuid.New()
+	templatePath := filepath.Join(templatesDir, fmt.Sprintf("%s.yml", attributes.ServerType))
+	templateContent, err := ioutil.ReadFile(templatePath)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Template creation failed: %s", err.Error())})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to read template file: %s", err.Error())})
 		return
 	}
 
-	id, err := uuid.NewUUID()
+	tmpl, err := template.New("serverTemplate").Parse(string(templateContent))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("ID could not be created %s", err.Error())})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to parse template: %s", err.Error())})
 		return
 	}
 
-	manifestName := fmt.Sprintf("project-zomboid-%s.yaml", id.String())
-	dir := fmt.Sprintf("./manifests/%s", manifestName)
-	outputFile, err := os.Create(dir)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("File creation failed: %s", err.Error())})
-		return
-	}
-
-	// Close the file when done
-	defer outputFile.Close()
-
-	err = tmp.Execute(outputFile, map[string]string{
+	var outputBuffer bytes.Buffer
+	if err := tmpl.Execute(&outputBuffer, map[string]string{
 		"ID":   id.String(),
 		"Size": string(attributes.ServerType),
-	})
-
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Template execution failed: %s", err.Error())})
+	}); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Failed to execute template: %s", err.Error())})
 		return
 	}
 
-	cmd := exec.Command("kubectl", "apply", "-f", dir)
+	outputFilePath := filepath.Join(manifestsDir, fmt.Sprintf("%s-%s.yml", string(attributes.Game), id.String()))
+	if err := ioutil.WriteFile(outputFilePath, outputBuffer.Bytes(), 0644); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to write to output file: %s", err.Error())})
+		return
+	}
+
+	cmd := exec.Command("kubectl", "apply", "-f", outputFilePath)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	err = cmd.Run()
-
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Kubectl apply failed: %s", err.Error())})
+	if err := cmd.Run(); err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fmt.Sprintf("Failed to apply manifest: %s", err.Error())})
 		return
 	}
 

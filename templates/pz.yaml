@@ -18,7 +18,7 @@ spec:
   volumes:
     - name: server-file-storage
       hostPath:
-        path: /root/zomboid/server-file
+        path: /root/project-zomboid-{{.ID}}/server-file
     - name: config-storage
       hostPath:
-        path: /root/zomboid/config
+        path: /root/project-zomboid-{{.ID}}/config
